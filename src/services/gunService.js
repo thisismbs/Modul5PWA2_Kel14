@@ -63,18 +63,19 @@ class GunService {
   /**
    * Fetch a paginated, filterable list of products.
    */
-  async getGuns(params = {}) {
+async getGuns(params = {}) {
     if (IS_SUPABASE) {
-      const queryParts = ['select=*']
+      const page = Number(params.page) || 1
+      const limit = Number(params.limit) || 2 // 2 item per page untuk demo paginasi
+      const offset = (page - 1) * limit
 
+      const queryParts = ['select=*']
       if (params.search) {
         queryParts.push(`name=ilike.*${encodeURIComponent(params.search)}*`)
       }
-
       if (params.category && params.category !== 'All') {
         queryParts.push(`type=eq.${encodeURIComponent(params.category)}`)
       }
-
       if (params.sort_by) {
         const order = params.order === 'desc' ? 'desc' : 'asc'
         queryParts.push(`order=${encodeURIComponent(params.sort_by)}.${order}`)
@@ -82,21 +83,31 @@ class GunService {
         queryParts.push('order=created_at.desc')
       }
 
-      if (params.limit) {
-        queryParts.push(`limit=${params.limit}`)
-      }
+      // Pagination query parameters
+      queryParts.push(`limit=${limit}`)
+      queryParts.push(`offset=${offset}`)
 
       const queryString = queryParts.join('&')
       const data = await apiClient.get(`/rest/v1/products?${queryString}`)
       const list = Array.isArray(data) ? data.map(normalizeProduct) : []
 
+      // Ambil total semua produk untuk kalkulasi total halaman
+      let totalCount = list.length
+      try {
+        const all = await apiClient.get('/rest/v1/products?select=id')
+        if (Array.isArray(all)) totalCount = all.length
+      } catch (e) {
+        // Fallback
+      }
+
       return {
         success: true,
         data: list,
         pagination: {
-          total: list.length,
-          page: params.page || 1,
-          limit: params.limit || 50,
+          total: totalCount,
+          page: page,
+          limit: limit,
+          totalPages: Math.ceil(totalCount / limit) || 1
         },
       }
     }
@@ -107,7 +118,6 @@ class GunService {
     )
     return apiClient.get('/api/v1/recipes', { params: clean })
   }
-
   /**
    * Fetch a single product by ID.
    */

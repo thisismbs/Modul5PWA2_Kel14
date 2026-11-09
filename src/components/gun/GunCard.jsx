@@ -1,20 +1,38 @@
+import { Share2 } from 'lucide-react'
 import FavoriteButton from '../common/FavoriteButton'
 import { formatPrice, truncate } from '../../utils/helpers'
 
-/**
- * Product card used in the catalog grid.
- *
- * @param {Object}   props
- * @param {Object}   props.gun       — product data
- * @param {Function} props.onSelect  — called with the gun when clicked
- * @param {Function} [props.onEdit]  — called when Edit is clicked (admin)
- * @param {Function} [props.onDelete]— called when Delete is clicked (admin)
- */
 export default function GunCard({ gun, onSelect, onEdit, onDelete }) {
   const imgSrc = gun.image_url || gun.image || '/guns/pistol.svg'
-  const category = gun.type || gun.category || '—'
+  const category = gun.type || gun.category || 'Hardware'
   const caliber = gun.caliber || gun.difficulty || ''
   const price = gun.price ?? gun.cook_time ?? 0
+
+  const handleShare = async (e) => {
+    e.stopPropagation()
+    const shareUrl = `${window.location.origin}${window.location.pathname}?gunId=${gun.id}`
+    
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: gun.name,
+          text: `Check out ${gun.name} on Bore & Barrel Armory!`,
+          url: shareUrl,
+        })
+        return
+      } catch (err) {
+        // Fallback jika user cancel share
+      }
+    }
+    
+    // Fallback: Salin URL ke Clipboard
+    try {
+      await navigator.clipboard.writeText(shareUrl)
+      alert(`Link disalin ke clipboard:\n${shareUrl}`)
+    } catch {
+      alert(`Bagikan tautan ini: ${shareUrl}`)
+    }
+  }
 
   return (
     <li className="card">
@@ -32,34 +50,42 @@ export default function GunCard({ gun, onSelect, onEdit, onDelete }) {
           height="180"
           loading="lazy"
         />
-
         <span className="name display">{gun.name}</span>
-
         <span className="type">
-          {category}
-          {caliber ? ` · ${caliber}` : ''}
+          {category} {caliber ? `• ${caliber}` : ''}
         </span>
-
         {gun.description && (
           <span className="card-desc">{truncate(gun.description, 72)}</span>
         )}
-
         <span className="price">{formatPrice(price)}</span>
       </button>
 
       {/* Floating actions row */}
       <div className="card-actions">
+        <button
+          type="button"
+          className="card-act-btn"
+          onClick={handleShare}
+          title="Share link"
+          aria-label={`Share ${gun.name}`}
+        >
+          <Share2 size={15} color="var(--ink)" />
+        </button>
+
         <FavoriteButton gunId={gun.id || gun.name} />
 
         {onEdit && (
           <button
             type="button"
             className="card-act-btn"
-            onClick={(e) => { e.stopPropagation(); onEdit(gun) }}
+            onClick={(e) => {
+              e.stopPropagation()
+              onEdit(gun)
+            }}
             aria-label={`Edit ${gun.name}`}
             title="Edit"
           >
-            ✏️
+            ✎
           </button>
         )}
 
@@ -67,11 +93,14 @@ export default function GunCard({ gun, onSelect, onEdit, onDelete }) {
           <button
             type="button"
             className="card-act-btn card-act-btn--danger"
-            onClick={(e) => { e.stopPropagation(); onDelete(gun) }}
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete(gun)
+            }}
             aria-label={`Delete ${gun.name}`}
             title="Delete"
           >
-            🗑️
+            ✕
           </button>
         )}
       </div>

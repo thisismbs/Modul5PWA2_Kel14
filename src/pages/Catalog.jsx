@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { RefreshCw, Plus, Loader, AlertCircle, PackageOpen } from 'lucide-react'
+import { RefreshCw, Plus, Loader, AlertCircle, PackageOpen, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useGuns } from '../hooks/useGuns'
 import GUNS_LOCAL from '../data/guns'
 import GunCard from '../components/gun/GunCard'
@@ -14,30 +14,24 @@ import {
   extractCategories,
 } from '../utils/helpers'
 
-/**
- * Catalog page — the main product listing.
- *
- * Data source priority:
- *   1. Live API via useGuns()
- *   2. Local static array (GUNS_LOCAL) when the API is unreachable
- *
- * Features: search, category filter, sort, CRUD actions, detail modal.
- */
 export default function Catalog({ onNavigate }) {
-  // ---- API data ----
-  const { guns: apiGuns, loading, error, refetch } = useGuns({ limit: 50 })
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 2
+
+  // Ambil data dengan parameter paginasi
+  const { guns: apiGuns, loading, error, pagination, refetch } = useGuns({
+    page: currentPage,
+    limit: itemsPerPage
+  })
   const [useLocal, setUseLocal] = useState(false)
 
-  // Decide data source
   const rawGuns = useMemo(() => {
     if (useLocal || (error && apiGuns.length === 0)) {
-      // Enrich local data with synthetic ids so FavoriteButton and detail work
       return GUNS_LOCAL.map((g, i) => ({ ...g, id: g.id || `local-${i}` }))
     }
     return apiGuns
   }, [apiGuns, error, useLocal])
 
-  // ---- filters / sort ----
   const [search, setSearch] = useState('')
   const [activeCategory, setActiveCategory] = useState('All')
   const [sortKey, setSortKey] = useState('name')
@@ -52,10 +46,7 @@ export default function Catalog({ onNavigate }) {
     return sortItems(result, sortKey, sortOrder)
   }, [rawGuns, search, activeCategory, sortKey, sortOrder])
 
-  // ---- detail view ----
   const [selectedGun, setSelectedGun] = useState(null)
-
-  // ---- delete ----
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
@@ -75,26 +66,28 @@ export default function Catalog({ onNavigate }) {
     }
   }
 
-  // ---- If viewing a single product detail ----
   if (selectedGun) {
     return (
       <GunDetail
         gun={selectedGun}
         onBack={() => setSelectedGun(null)}
         onEdit={(g) => onNavigate && onNavigate('Edit', g)}
-        onDelete={(g) => { setSelectedGun(null); setDeleteTarget(g) }}
+        onDelete={(g) => {
+          setSelectedGun(null)
+          setDeleteTarget(g)
+        }}
       />
     )
   }
 
-  // ---- Main catalog view ----
+  const totalPages = pagination?.totalPages || 1
+
   return (
     <>
       <section className="masthead">
         <h1 className="display">Hardware, by the spec sheet.</h1>
         <p className="lede">
-          A small armory of pistols, rifles, and shotguns. Every piece listed
-          with its type, caliber, and price — nothing else.
+          A small armory of pistols, rifles, and shotguns. Every piece listed with its type, caliber, and price.
         </p>
       </section>
 
@@ -103,7 +96,7 @@ export default function Catalog({ onNavigate }) {
           <h2>Current stock</h2>
           <div className="list-head-right">
             <span className="count">
-              {filteredGuns.length} piece{filteredGuns.length !== 1 ? 's' : ''}
+              Page {currentPage} of {totalPages} ({pagination?.total || filteredGuns.length} items)
             </span>
             {onNavigate && (
               <button
@@ -117,7 +110,6 @@ export default function Catalog({ onNavigate }) {
           </div>
         </div>
 
-        {/* Filters */}
         <AdvancedFilter
           search={search}
           onSearch={setSearch}
@@ -126,14 +118,16 @@ export default function Catalog({ onNavigate }) {
           onCategory={setActiveCategory}
           sortKey={sortKey}
           sortOrder={sortOrder}
-          onSort={({ key, order }) => { setSortKey(key); setSortOrder(order) }}
+          onSort={({ key, order }) => {
+            setSortKey(key)
+            setSortOrder(order)
+          }}
         />
 
-        {/* States */}
         {loading && (
           <div className="state-box">
             <Loader size={28} className="spin" />
-            <p>Loading products…</p>
+            <p>Loading products...</p>
           </div>
         )}
 
@@ -145,11 +139,7 @@ export default function Catalog({ onNavigate }) {
               <button type="button" className="btn btn--outline" onClick={refetch}>
                 <RefreshCw size={16} /> Retry
               </button>
-              <button
-                type="button"
-                className="btn btn--outline"
-                onClick={() => setUseLocal(true)}
-              >
+              <button type="button" className="btn btn--outline" onClick={() => setUseLocal(true)}>
                 View Local Catalog
               </button>
             </div>
@@ -159,11 +149,10 @@ export default function Catalog({ onNavigate }) {
         {!loading && filteredGuns.length === 0 && !error && (
           <div className="state-box">
             <PackageOpen size={28} />
-            <p>No products match your search.</p>
+            <p>No products match your search on this page.</p>
           </div>
         )}
 
-        {/* Product grid */}
         {filteredGuns.length > 0 && (
           <ul className="stock">
             {filteredGuns.map((gun) => (
@@ -178,13 +167,41 @@ export default function Catalog({ onNavigate }) {
           </ul>
         )}
 
+        {/* Paginasi Navigasi Kontrol */}
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '16px', marginTop: '28px' }}>
+          <button
+            type="button"
+            className="btn btn--outline btn--sm"
+            onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+            disabled={currentPage <= 1 || loading}
+          >
+            <ChevronLeft size={16} /> Previous
+          </button>
+          
+          <span style={{ fontWeight: '600', fontSize: '0.9rem', color: 'var(--ink)' }}>
+            Halaman {currentPage} dari {totalPages}
+          </span>
+
+          <button
+            type="button"
+            className="btn btn--outline btn--sm"
+            onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+            disabled={currentPage >= totalPages || loading}
+          >
+            Next <ChevronRight size={16} />
+          </button>
+        </div>
+
         {useLocal && (
           <p className="local-notice">
             Showing local catalog (server unavailable).{' '}
             <button
               type="button"
               className="link-btn"
-              onClick={() => { setUseLocal(false); refetch() }}
+              onClick={() => {
+                setUseLocal(false)
+                refetch()
+              }}
             >
               Retry server
             </button>
@@ -192,7 +209,6 @@ export default function Catalog({ onNavigate }) {
         )}
       </section>
 
-      {/* Delete confirmation */}
       <ConfirmModal
         open={!!deleteTarget}
         title="Delete Product"
@@ -201,11 +217,13 @@ export default function Catalog({ onNavigate }) {
         danger
         loading={deleting}
         onConfirm={handleDelete}
-        onCancel={() => { setDeleteTarget(null); setDeleteError('') }}
+        onCancel={() => {
+          setDeleteTarget(null)
+          setDeleteError('')
+        }}
       />
-      {deleteError && (
-        <div className="toast toast--error">{deleteError}</div>
-      )}
+
+      {deleteError && <div className="toast toast--error">{deleteError}</div>}
     </>
   )
 }
