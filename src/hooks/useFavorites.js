@@ -2,12 +2,12 @@ import { useState, useEffect, useCallback } from 'react'
 import favoriteService from '../services/favoriteService'
 import { getUserIdentifier } from '../services/userService'
 
-// ---------------------------------------------------------------------------
-// localStorage fallback — used when the backend is unavailable so that
-// favourites are still fully functional offline.
-// ---------------------------------------------------------------------------
-
 const LOCAL_KEY = 'bore_barrel_favorites'
+
+// Cache in-memory untuk favorites (TTL 60 detik)
+let favoritesCache = null
+let favoritesCacheTime = 0
+const CACHE_TTL_MS = 60 * 1000
 
 const readLocalFavs = () => {
   try {
@@ -22,15 +22,9 @@ const writeLocalFavs = (ids) => {
   try {
     localStorage.setItem(LOCAL_KEY, JSON.stringify(ids))
   } catch {
-    /* quota exceeded — silently fail */
+    /* quota exceeded */
   }
 }
-
-// ---------------------------------------------------------------------------
-// useFavorites — list all favourited product IDs.
-//
-// First attempts the server; on failure uses localStorage.
-// ---------------------------------------------------------------------------
 
 export function useFavorites() {
   const [favorites, setFavorites] = useState([])
@@ -39,22 +33,37 @@ export function useFavorites() {
   const [isLocal, setIsLocal] = useState(false)
   const userIdentifier = getUserIdentifier()
 
-  const fetchFavorites = useCallback(async () => {
+  const fetchFavorites = useCallback(async (forceRefresh = false) => {
+    const now = Date.now()
+
+    // 1. Gunakan Cache jika masih dalam masa TTL dan tidak dipaksa refresh
+    if (!forceRefresh && favoritesCache && (now - favoritesCacheTime < CACHE_TTL_MS)) {
+      setFavorites(favoritesCache)
+      setLoading(false)
+      setIsLocal(false)
+      return
+    }
+
     try {
       setLoading(true)
       setError(null)
-
       const response = await favoriteService.getFavorites(userIdentifier)
-
       if (response.success) {
-        setFavorites(response.data || [])
+        const data = response.data || []
+        // Simpan ke memory cache
+        favoritesCache = data
+        favoritesCacheTime = Date.now()
+
+        setFavorites(data)
         setIsLocal(false)
       } else {
         throw new Error(response.message)
       }
     } catch {
-      // Fallback to localStorage
-      setFavorites(readLocalFavs())
+      // Fallback to localStorage jika offline
+      const localData = readLocalFavs()
+      favoritesCache = localData
+      setFavorites(localData)
       setIsLocal(true)
     } finally {
       setLoading(false)
@@ -65,12 +74,8 @@ export function useFavorites() {
     fetchFavorites()
   }, [fetchFavorites])
 
-  return { favorites, loading, error, isLocal, refetch: fetchFavorites }
+  return { favorites, loading, error, isLocal, refetch: () => fetchFavorites(true) }
 }
-
-// ---------------------------------------------------------------------------
-// useToggleFavorite — toggle a product in/out of favourites.
-// ---------------------------------------------------------------------------
 
 export function useToggleFavorite() {
   const [loading, setLoading] = useState(false)
@@ -81,11 +86,14 @@ export function useToggleFavorite() {
     try {
       setLoading(true)
       setError(null)
-
       const response = await favoriteService.toggleFavorite({
         recipe_id: gunId,
         user_identifier: userIdentifier,
       })
+
+      // Invalidate cache saat user menambah/menghapus favorit
+      favoritesCache = null
+      favoritesCacheTime = 0
 
       if (response.success) {
         return response.data
@@ -96,7 +104,6 @@ export function useToggleFavorite() {
       const current = readLocalFavs()
       const idx = current.findIndex((id) => String(id) === String(gunId))
       let isFavorited
-
       if (idx === -1) {
         current.push(gunId)
         isFavorited = true
@@ -105,6 +112,10 @@ export function useToggleFavorite() {
         isFavorited = false
       }
       writeLocalFavs(current)
+
+      favoritesCache = current
+      favoritesCacheTime = Date.now()
+
       return { is_favorited: isFavorited }
     } finally {
       setLoading(false)
@@ -114,17 +125,14 @@ export function useToggleFavorite() {
   return { toggleFavorite, loading, error }
 }
 
-// ---------------------------------------------------------------------------
-// useIsFavorited — convenience wrapper for a single product.
-// ---------------------------------------------------------------------------
-
 export function useIsFavorited(gunId) {
   const { favorites, loading: fetchLoading, refetch } = useFavorites()
   const { toggleFavorite: toggle, loading: toggleLoading } = useToggleFavorite()
 
-  // Check both server-format (objects with .id) and local-format (plain ids)
   const isFavorited = favorites.some((fav) => {
-    const favId = typeof fav === 'object' && fav !== null ? (fav.id ?? fav.product_id ?? fav.recipe_id) : fav
+    const favId = typeof fav === 'object' && fav !== null
+      ? (fav.id ?? fav.product_id ?? fav.recipe_id)
+      : fav
     return String(favId) === String(gunId)
   })
 
@@ -142,5 +150,3 @@ export function useIsFavorited(gunId) {
 }
 
 export { getUserIdentifier }
-
-
